@@ -21,7 +21,7 @@ from covsirphy.cleaning.vaccine_data import VaccineData
 from covsirphy.cleaning.mobility_data import MobilityData
 
 
-class DataHandler(Term):
+class DataHandler_extend(Term):
     """
     Data handler for analysis.
 
@@ -51,7 +51,8 @@ class DataHandler(Term):
         # Details of the area name
         self._area_dict = {"country": str(country), "province": str(province or self.UNKNOWN)}
         # Main dataset before complement
-        main_cols = [self.DATE, self.C, self.CI, self.F, self.R, self.S]
+        # main_cols = [self.DATE, self.C, self.CI, self.F, self.R, self.S]
+        main_cols = ["Date", "Susceptible", "Exposed", "Infectious", "Isolated", "Recovered", "Dead"] #, "Population"
         self._main_raw = pd.DataFrame(columns=main_cols)
         # Main dataset After complement
         self._main_df = pd.DataFrame(columns=main_cols)

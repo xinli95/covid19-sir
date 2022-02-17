@@ -9,6 +9,7 @@ from covsirphy.util.argument import find_args
 from covsirphy.util.error import deprecate, DBLockedError, NotDBLockedError, UnExpectedValueError
 from covsirphy.util.term import Term
 from covsirphy.cleaning.jhu_data import JHUData
+from covsirphy.cleaning.jhu_extend import JHUData_extend
 from covsirphy.cleaning.japan_data import JapanData
 from covsirphy.cleaning.oxcgrt import OxCGRTData
 from covsirphy.cleaning.population import PopulationData
@@ -101,6 +102,7 @@ class DataLoader(Term):
                     DeprecationWarning,
                     stacklevel=2
                 )
+        self.variables = ["Susceptible", "Exposed", "Infectious", "Isolated", "Recovered", "Dead", "Population"]
 
     @property
     def local(self):
@@ -324,6 +326,7 @@ class DataLoader(Term):
             self.PRODUCT, self.VAC, self.V_ONCE, self.V_FULL,
             *self._oxcgrt_cols, *self._mobility_cols,
         ]
+        # variables = self.variables
         id_dict = {date: self.DATE, country: self.COUNTRY, province: self.PROVINCE}
         rename_dict = {
             **id_dict, iso3: self.ISO3,
@@ -369,6 +372,96 @@ class DataLoader(Term):
         self._locked_df = df.drop_duplicates(self._id_cols, keep="first", ignore_index=True)
         self._locked_citation_dict = citation_dict.copy()
         return self
+    
+    def lock_extend(self, date, country, province, iso3=None,
+                 confirmed=None, fatal=None, recovered=None, population=None, tests=None,
+                 product=None, vaccinations=None, vaccinated_once=None, vaccinated_full=None,
+                 oxcgrt_variables=None, mobility_variables=None):
+            """
+            Lock the local database, specifying columns which has date and area information.
+    
+            Args:
+                date (str): column name for dates
+                country (str): country names (top level administration)
+                procvince (str): province names (2nd level administration)
+                iso3 (str or None): ISO3 codes
+                confirmed (str or None): the number of confirmed cases
+                fatal (str or None): the number of fatal cases
+                recovered (str or None): the number of recovered cases
+                population (str or None): population values
+                tests (str or None): the number of tests
+                product (str or None): vaccine product names
+                vaccinations (str or None): cumulative number of vaccinations
+                vaccinated_once (str or None): cumulative number of people who received at least one vaccine dose
+                vaccinated_full (str or None): cumulative number of people who received all doses prescrived by the protocol
+                oxcgrt_variables (list[str] or None): list of variables for OxCGRTData
+                mobility_variables (list[str] or None): list of variables for MobilityData
+    
+            Returns:
+                covsirphy.DataLoader: self
+    
+            Note:
+                If @oxcgrt_variables is None, variables registered in COVID-19 Data Hub will be used.
+    
+            Note:
+                If @mobility_variables is None, variables registed in COVID-19 Open Data (Google) will be used.
+            """
+            self._ensure_lock_status(lock_expected=False)
+            # Flexible variables
+            self._oxcgrt_cols = oxcgrt_variables or _COVID19dh.OXCGRT_VARS[:]
+            self._mobility_cols = mobility_variables or _GoogleOpenData.MOBILITY_VARS[:]
+            # # All variables
+            # variables = [
+            #     self.ISO3, self.C, self.F, self.R, self.N, self.TESTS,
+            #     self.PRODUCT, self.VAC, self.V_ONCE, self.V_FULL,
+            #     *self._oxcgrt_cols, *self._mobility_cols,
+            # ]
+            variables = self.variables
+            id_dict = {date: self.DATE, country: self.COUNTRY, province: self.PROVINCE}
+            rename_dict = {
+                **id_dict, iso3: self.ISO3,
+                confirmed: self.C, fatal: self.F, recovered: self.R, population: self.N,
+                tests: self.TESTS, product: self.PRODUCT, vaccinations: self.VAC,
+                vaccinated_once: self.V_ONCE, vaccinated_full: self.V_FULL,
+            }
+            # Local database
+            df = self._local_df.rename(columns=rename_dict)
+            df = df.reindex(columns=[*self._id_cols, *variables])
+            if df.empty:
+                citation_dict = dict.fromkeys(variables, [])
+            else:
+                df[self.DATE] = pd.to_datetime(df[self.DATE])
+                citation_dict = {v: self._local_citations if v in df else [] for v in variables}
+                # df = df.pivot_table(
+                #     values=variables, index=self.DATE, columns=[self.COUNTRY, self.PROVINCE], aggfunc="first")
+                # df = df.resample("D").first().ffill().bfill()
+                # df = df.stack().stack().reset_index()
+            # With Remote datasets
+            if self.update_interval is not None:
+                df = df.set_index(self._id_cols)
+                # COVID-19 Dataset in Japan
+                japan_filename = self._filename_dict["japan"]
+                df, citation_dict, _ = self._add_remote(df, _CSJapan, japan_filename, citation_dict)
+                # COVID19 Data Hub
+                dh_filename = self._filename_dict["covid19dh"]
+                df, citation_dict, dh_handler = self._add_remote(df, _COVID19dh, dh_filename, citation_dict)
+                self._covid19dh_primary = dh_handler.primary
+                # Our World In Data
+                owid_filename = self._filename_dict["owid"]
+                df, citation_dict, _ = self._add_remote(df, _OWID, owid_filename, citation_dict)
+                # COVID-19 Open Data by Google Cloud Platform
+                google_filename = self._filename_dict["google"]
+                df, citation_dict, _ = self._add_remote(df, _GoogleOpenData, google_filename, citation_dict)
+                # Reset index
+                df = df.reset_index()
+            # Complete database lock
+            all_cols = [*self._id_cols, *variables, *list(df.columns)]
+            df = df.reindex(columns=sorted(set(all_cols), key=all_cols.index))
+            self._set_date_location(df)
+            # df[self.ISO3] = df[self.ISO3].fillna(self.UNKNOWN)
+            self._locked_df = df.drop_duplicates(self._id_cols, keep="first", ignore_index=True)
+            self._locked_citation_dict = citation_dict.copy()
+            return self
 
     @staticmethod
     def _last_updated_local(path):
@@ -493,6 +586,30 @@ class DataLoader(Term):
         citations = [c for (v, line) in citation_dict.items() for c in line if v in variables]
         return (self._locked_df, sorted(set(citations), key=citations.index))
 
+    def _auto_lock_extend(self, variables):
+        """
+        Automatic database lock before using database.
+
+        Args:
+            variables (list[str] or None): variables to check citations
+
+        Returns:
+            tuple(pandas.DataFrame, dict[str, list[str]]):
+                - locked database
+                - citation list of the variables
+        """
+        # Database lock
+        try:
+            self._ensure_lock_status(lock_expected=True)
+        except NotDBLockedError:
+            self.lock_extend(*self._id_cols)
+        # Citation list
+        if variables is None:
+            return (self._locked_df, [])
+        citation_dict = self._locked_citation_dict.copy()
+        citations = [c for (v, line) in citation_dict.items() for c in line if v in variables]
+        return (self._locked_df, sorted(set(citations), key=citations.index))
+    
     @property
     def covid19dh_citation(self):
         """
@@ -514,6 +631,10 @@ class DataLoader(Term):
         self._read_dep(**kwargs)
         df, citations = self._auto_lock(variables=[self.C, self.F, self.R, self.N])
         return JHUData(data=df, citation="\n".join(citations))
+    
+    def jhu_extend(self, **kwargs):
+        df, citations = self._auto_lock_extend(variables=self.variables)
+        return JHUData_extend(data=df, citation="\n".join(citations))
 
     @deprecate("DataLoader.population()", new="DataLoader.jhu()", version="2.21.0-xi-fu1")
     def population(self, **kwargs):

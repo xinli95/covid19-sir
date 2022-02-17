@@ -35,7 +35,8 @@ class Evaluator(object):
         "MSLE": (sklearn.metrics.mean_squared_log_error, True),
         "MAPE": (sklearn.metrics.mean_absolute_percentage_error, True),
         "RMSE": (lambda x1, x2: sklearn.metrics.mean_squared_error(x1, x2, squared=False), True),
-        "RMSLE": (lambda x1, x2: np.sqrt(sklearn.metrics.mean_squared_log_error(x1, x2)), True),
+        # "RMSLE": (lambda x1, x2: np.sqrt(sklearn.metrics.mean_squared_log_error(x1, x2)), True),
+        "RMSLE": (sklearn.metrics.mean_squared_log_error, True),
         "R2": (sklearn.metrics.r2_score, False),
     }
 
@@ -58,7 +59,7 @@ class Evaluator(object):
         self._true = all_df.loc[:, [f"{col}{self._A}" for col in true_df.columns]]
         self._pred = all_df.loc[:, [f"{col}{self._P}" for col in pred_df.columns]]
 
-    def score(self, metric=None, metrics="RMSLE"):
+    def score(self, metric=None, metrics="RMSLE", multioutput= None):
         """
         Calculate score with specified metric.
 
@@ -91,8 +92,9 @@ class Evaluator(object):
         if metric not in self._METRICS_DICT:
             raise UnExpectedValueError("metric", metric, candidates=list(self._METRICS_DICT.keys()))
         # Calculate score
+        assert multioutput is not None
         try:
-            return float(self._METRICS_DICT[metric][0](self._true, self._pred))
+            return float(self._METRICS_DICT[metric][0](self._true, self._pred, multioutput=multioutput))
         except ValueError:
             # Multioutput not supported
             raise ValueError(

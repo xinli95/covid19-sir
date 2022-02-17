@@ -27,15 +27,21 @@ class ODEHandler(Term):
         n_jobs (int): the number of parallel jobs or -1 (CPU count)
     """
 
-    def __init__(self, model, first_date, tau=None, metric="RMSLE", n_jobs=-1):
+    def __init__(self, model, first_date, tau=None, metric="RMSLE", n_jobs=-1, metric_cols = ["Dead"], metric_cols_weights = []):
         self._model = self._ensure_subclass(model, ModelBase, name="model")
         self._first = self._ensure_date(first_date, name="first_date")
         self._metric = self._ensure_selectable(metric, Evaluator.metrics(), name="metric")
-        self._n_jobs = cpu_count() if n_jobs == -1 else self._ensure_natural_int(n_jobs, name="n_jobs")
+        self._n_jobs = 1 if n_jobs == -1 else self._ensure_natural_int(n_jobs, name="n_jobs") # cpu_count()
         # Tau value [min] or None
         self._tau = self._ensure_tau(tau, accept_none=True)
         # {"0th": output of self.add()}
         self._info_dict = {}
+        self.metric_cols = metric_cols
+        if metric_cols_weights:
+            assert len(metric_cols) == len(metric_cols_weights)
+            self.metric_cols_weights = metric_cols_weights
+        else:
+            self.metric_cols_weights = [1 / len(metric_cols)] * len(metric_cols)
 
     def add(self, end_date, param_dict=None, y0_dict=None):
         """
@@ -200,7 +206,7 @@ class ODEHandler(Term):
         phase_dict = self._info_dict[phase].copy()
         start, end = phase_dict[self.START], phase_dict[self.END]
         df = data.loc[(start <= data[self.DATE]) & (data[self.DATE] <= end)]
-        estimator = _ParamEstimator(self._model, df, self._tau, self._metric, quantiles)
+        estimator = _ParamEstimator(self._model, df, self._tau, self._metric, quantiles, metric_cols=self.metric_cols, metric_cols_weights=self.metric_cols_weights)
         est_dict = estimator.run(check_dict, study_dict)
         n_trials, runtime = est_dict[self.TRIALS], est_dict[self.RUNTIME]
         start_date = start.strftime(self.DATE_FORMAT)
@@ -212,7 +218,7 @@ class ODEHandler(Term):
         print(f"\t{ph_statement}: finished {n_trials:>4} trials in {runtime}")
         return est_dict
 
-    def estimate_params(self, data, quantiles=(0.1, 0.9), check_dict=None, study_dict=None, **kwargs):
+    def estimate_params(self, data, quantiles=(0.1, 0.9), check_dict=None, study_dict=None, DSIFR_COLUMNS = None, **kwargs):
         """
         Estimate ODE parameter values of the all phases to minimize the score of the metric.
 
@@ -259,8 +265,12 @@ class ODEHandler(Term):
         print(f"Running optimization with {self._n_jobs} CPUs...")
         stopwatch = StopWatch()
         # Arguments
-        self._ensure_dataframe(data, name="data", columns=self.DSIFR_COLUMNS)
-        df = data.loc[:, self.DSIFR_COLUMNS]
+        if DSIFR_COLUMNS is None:
+            self._ensure_dataframe(data, name="data", columns=self.DSIFR_COLUMNS)
+            DSIFR_COLUMNS = self.DSIFR_COLUMNS
+        else:
+            self._ensure_dataframe(data, name="data", columns=DSIFR_COLUMNS)
+        df = data.loc[:, DSIFR_COLUMNS]
         if not self._info_dict:
             raise UnExecutedError("ODEHandler.add()")
         if self._tau is None:

@@ -6,6 +6,7 @@ import ruptures as rpt
 from covsirphy.util.error import deprecate
 from covsirphy.util.term import Term
 from covsirphy.trend.sr_change import _SRChange
+from covsirphy.trend.sa_change import _SAChange
 
 
 class TrendDetector(Term):
@@ -32,8 +33,8 @@ class TrendDetector(Term):
         "Change points" is the same as the start dates of phases except for the 0th phase.
     """
 
-    def __init__(self, data, area="Selected area", min_size=7):
-        self._ensure_dataframe(data, name="data", columns=self.SUB_COLUMNS)
+    def __init__(self, data, area="Selected area", min_size=7, aggregate_cols=["Susceptible"]):
+        # self._ensure_dataframe(data, name="data", columns=self.SUB_COLUMNS)
         # Index: Date, Columns: the number cases
         self._record_df = data.groupby(self.DATE).last()
         # Minimum size of phases
@@ -47,6 +48,8 @@ class TrendDetector(Term):
         self._area = area
         # Change points: list[pandas.Timestamp]
         self._points = []
+        
+        self.aggregate_cols = aggregate_cols
 
     def reset(self):
         """
@@ -147,6 +150,44 @@ class TrendDetector(Term):
         points = finder.run(algorithm=algorithm, **algo_kwargs)
         self._points = sorted(set(self._points) | set(points))
         return self
+    
+    def sa(self, algo="Binseg-normal", **kwargs):
+        """
+        Perform S-A trend analysis.
+
+        Args:
+            algo (str): detection algorithms and models
+            kwargs: the other arguments of algorithm classes (ruptures.Pelt, .Binseg, BottomUp)
+
+        Raises:
+            UnExpectedValueError: un-expected value was applied as algorithm name
+
+        Returns:
+            covsirphy.TrendDetector: self
+
+        Note:
+            Candidates of @algo are "Pelt-rbf", "Binseg-rbf", "Binseg-normal", "BottomUp-rbf", "BottomUp-normal".
+            Please refer to documentation of ruptures package.
+            https://centre-borelli.github.io/ruptures-docs/
+        """
+        # Set algorithm class
+        algo_kwargs = {"jump": 1, "min_size": self._min_size}
+        algo_kwargs.update(kwargs)
+        algo_dict = {
+            "Pelt-rbf": (rpt.Pelt, {"model": "rbf"}),
+            "Binseg-rbf": (rpt.Binseg, {"model": "rbf"}),
+            "Binseg-normal": (rpt.Binseg, {"model": "normal"}),
+            "BottomUp-rbf": (rpt.BottomUp, {"model": "rbf"}),
+            "BottomUp-normal": (rpt.BottomUp, {"model": "normal"}),
+        }
+        self._ensure_selectable(target=algo, candidates=list(algo_dict.keys()), name="algo")
+        algo_kwargs.update(algo_dict[algo][1])
+        algorithm = algo_dict[algo][0](**algo_kwargs)
+        # Run trend analysis
+        finder = _SAChange(sr_df=self._record_df)
+        points = finder.run(algorithm=algorithm, **algo_kwargs)
+        self._points = sorted(set(self._points) | set(points))
+        return self
 
     def show(self, **kwargs):
         """
@@ -156,6 +197,16 @@ class TrendDetector(Term):
             kwargs: keyword arguments of covsirphy.trend_plot()
         """
         finder = _SRChange(sr_df=self._record_df)
+        finder.show(self._points, self._area, **kwargs)
+    
+    def show_SA(self, **kwargs):
+        """
+        Show the trend on S-A plane.
+
+        Args:
+            kwargs: keyword arguments of covsirphy.trend_plot()
+        """
+        finder = _SAChange(sr_df=self._record_df)
         finder.show(self._points, self._area, **kwargs)
 
 

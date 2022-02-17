@@ -18,6 +18,7 @@ from covsirphy.util.term import Term
 from covsirphy.visualization.line_plot import line_plot
 from covsirphy.visualization.compare_plot import compare_plot
 from covsirphy.cleaning.jhu_data import JHUData
+from covsirphy.cleaning.jhu_extend import JHUData_extend
 from covsirphy.ode.mbase import ModelBase
 from covsirphy.ode.sir import SIR
 from covsirphy.ode.sird import SIRD
@@ -358,6 +359,10 @@ class Scenario(Term):
         """
         Initialize dictionary of trackers.
         """
+        if isinstance(self._data._jhu_data, JHUData_extend):
+            tracker = PhaseTracker(self._data.records_main(), self.today, self._area, self._data._jhu_data.variables)
+            self._tracker_dict = {self.MAIN: tracker}
+            return
         tracker = PhaseTracker(self._data.records_main(), self.today, self._area)
         self._tracker_dict = {self.MAIN: tracker}
 
@@ -755,7 +760,51 @@ class Scenario(Term):
                 DeprecationWarning, stacklevel=2)
             self.disable(phases=["0th"], name=name)
         return self
+    
+    def trend_SA(self, min_size=None, force=True, name="Main", show_figure=True, filename=None, **kwargs):
+        """
+        Perform S-A trend analysis and set phases.
 
+        Args:
+            min_size (int or None): minimum value of phase length [days] (over 2) or None (equal to max of 7 and delay period)
+            force (bool): if True, change points will be over-written
+            name (str): phase series name
+            show_figure (bool): if True, show the result as a figure
+            filename (str): filename of the figure, or None (display)
+            kwargs: keyword arguments of covsirphy.TrendDetector(), .TrendDetector.sr() and .trend_plot()
+
+        Returns:
+            covsirphy.Scenario: self
+
+        Note:
+            If @min_size is None, this will be thw max value of 7 days and delay period calculated with .estimate_delay() method.
+        """
+        # Arguments
+        force = kwargs.pop("set_phases", force)
+        # Minimum size of phases
+        if min_size is None:
+            try:
+                delay, _ = self.estimate_delay(**find_args(self.estimate_delay, **kwargs))
+            except KeyError:
+                # Extra datasets are not registered
+                delay = 7
+            min_size = max(7, delay)
+        self._ensure_int_range(min_size, name="min_size", value_range=(2, None))
+        kwargs["min_size"] = min_size
+        # S-R trend analysis
+        tracker = self._tracker(name)
+        if not self._interactive and filename is None:
+            show_figure = False
+        filename = None if self._interactive else filename
+        self[name] = tracker.trend_SA(force=force, show_figure=show_figure, filename=filename, **kwargs)
+        # Disable 0th phase, if necessary
+        if "include_init_phase" in kwargs:
+            warnings.warn(
+                "@include_init_phase was deprecated. Please use Scenario.disable('0th').",
+                DeprecationWarning, stacklevel=2)
+            self.disable(phases=["0th"], name=name)
+        return self
+    
     def estimate(self, model, phases=None, name="Main", **kwargs):
         """
         Perform parameter estimation for each phases.
@@ -1033,8 +1082,9 @@ class Scenario(Term):
             append(df)
         # Concat dataframes
         track_df = pd.concat(dataframes, axis=0, ignore_index=True, sort=False)
-        track_df.insert(7, self.N, None)
-        track_df[self.N] = track_df[[self.S, self.C]].sum(axis=1)
+        if "Population" not in track_df.columns:
+            track_df.insert(7, self.N, None)
+            track_df[self.N] = track_df[[self.S, self.C]].sum(axis=1)
         # Specify date range
         ref_tracker = self._tracker(ref_name)
         start, end = ref_tracker.parse_range(**find_args(PhaseTracker.parse_range, **kwargs))
@@ -1065,7 +1115,7 @@ class Scenario(Term):
         # Select the records of target variable
         return df.pivot_table(values=target, index=self.DATE, columns=self.SERIES, aggfunc="last")
 
-    def history(self, target, with_actual=True, ref_name="Main", **kwargs):
+    def history(self, target, with_actual=True, ref_name="Main", VALUE_COLUMNS = None, **kwargs):
         """
         Show the history of variables and parameter values to compare scenarios.
 
@@ -1082,6 +1132,8 @@ class Scenario(Term):
                 Columns
                     {scenario name} (int or float): values of the registered scenario
         """
+        if VALUE_COLUMNS:
+            self.VALUE_COLUMNS = VALUE_COLUMNS
         df = self._history(target=target, with_actual=with_actual)
         df.dropna(subset=[col for col in df.columns if col != self.ACTUAL], inplace=True)
         ref_tracker = self._tracker(ref_name)

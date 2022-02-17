@@ -35,8 +35,12 @@ class PhaseTracker(Term):
         (Internally) ID=0 means not registered, ID < 0 means disabled, IDs (>0) are active phase ID.
     """
 
-    def __init__(self, data, today, area):
-        self._ensure_dataframe(data, name="data", columns=self.SUB_COLUMNS)
+    def __init__(self, data, today, area, variables=None):
+        if variables is None:
+            self._ensure_dataframe(data, name="data", columns=self.SUB_COLUMNS)
+        else:
+            self.SUB_COLUMNS = ["Date"] + variables.copy()
+            self._ensure_dataframe(data, name="data", columns=self.SUB_COLUMNS)
         self._today = self._ensure_date(today, name="today")
         self._area = str(area)
         # Tracker of phase information: index=Date, records of C/I/F/R/S, phase ID (0: not defined)
@@ -194,14 +198,15 @@ class PhaseTracker(Term):
         # Calculate phase types: Past or Future
         df[self.TENSE] = (df[self.START] <= self._today).map({True: self.PAST, False: self.FUTURE})
         # Calculate population values
-        df[self.N] = df[[self.S, self.C]].sum(axis=1).replace(0.0, np.nan).ffill().astype(np.int64)
+        if self.C in list(df.columns):
+            df[self.N] = df[[self.S, self.C]].sum(axis=1).replace(0.0, np.nan).ffill().astype(np.int64)
         # Fill in blanks of ODE model name and tau
         if self.ODE in df:
             df[self.ODE] = df[self.ODE].ffill()
         if self.TAU in df:
             df[self.TAU] = self._tau
         # Set the order of columns
-        df = df.drop([self.C, self.CI, self.F, self.R, self.S], axis=1)
+        # df = df.drop([self.C, self.CI, self.F, self.R, self.S], axis=1)
         fixed_cols = self.TENSE, self.START, self.END, self.N
         others = [col for col in df.columns if col not in set(fixed_cols)]
         return df.loc[:, [*fixed_cols, *others]]
@@ -229,6 +234,31 @@ class PhaseTracker(Term):
         # Show S-R plane
         if show_figure:
             detector.show(**find_args(trend_plot, **kwargs))
+        return self
+
+    def trend_SA(self, force, show_figure, **kwargs):
+        """
+        Define past phases with S-A trend analysis.
+
+        Args:
+            force (bool): if True, change points will be over-written
+            show_figure (bool): if True, show the result as a figure
+            kwargs: keyword arguments of covsirphy.TrendDetector(), .TrendDetector.sr() and .trend_plot()
+
+        Returns:
+            covsirphy.PhaseTracker: self
+        """
+        df = self._track_df.loc[:self._today].reset_index()[self.SUB_COLUMNS]
+        detector = TrendDetector(data=df, area=self._area, **find_args(TrendDetector, **kwargs))
+        # Perform S-R trend analysis
+        detector.sa(**find_args(TrendDetector.sa, **kwargs))
+        # Register phases
+        if force:
+            start_dates, end_dates = detector.dates()
+            _ = [self.define_phase(start, end) for (start, end) in zip(start_dates, end_dates)]
+        # Show S-A plane
+        if show_figure:
+            detector.show_SA(**find_args(trend_plot, **kwargs))
         return self
 
     def estimate(self, model, tau=None, **kwargs):
@@ -261,7 +291,7 @@ class PhaseTracker(Term):
         if tau is None:
             tau = handler.estimate_tau(data_df, **find_args(ODEHandler.estimate_tau, **kwargs))
         # Estimate ODE parameter values
-        est_dict = handler.estimate_params(data_df, **kwargs)
+        est_dict = handler.estimate_params(data_df, DSIFR_COLUMNS = model.DSIFR_COLUMNS, **kwargs)
         # Register phase information to self
         df = pd.DataFrame.from_dict(est_dict, orient="index")
         df[self.DATE] = df[[self.START, self.END]].apply(lambda x: pd.date_range(x[0], x[1]), axis=1)
@@ -367,17 +397,17 @@ class PhaseTracker(Term):
         handler = ODEHandler(self._model, record_df.index.min(), tau=self._tau)
         parameters = self._model.PARAMETERS[:]
         for (start, end) in zip(start_dates, end_dates):
-            param_dict = record_df.loc[end, parameters].to_dict()
+            param_dict = record_df.loc[start, parameters].to_dict() # should be start!!
             if end <= self._today:
-                ph_df = record_df.loc[start:, [self.S, self.CI, self.F, self.R]].reset_index()
+                ph_df = record_df.loc[start:, self._model.VARIABLES].reset_index() #self.SUB_COLUMNS[1:-1], [self.S, self.CI, self.F, self.R]
                 y0_dict = self._model.convert(ph_df, self._tau).iloc[0].to_dict()
             else:
                 y0_dict = None
             _ = handler.add(end, param_dict=param_dict, y0_dict=y0_dict)
         # Perform simulation
         sim_df = handler.simulate()
-        sim_df[self.C] = sim_df[[self.CI, self.F, self.R]].sum(axis=1)
-        return sim_df.loc[:, self.SUB_COLUMNS]
+        # sim_df[self.C] = sim_df[[self.CI, self.F, self.R]].sum(axis=1)
+        return sim_df.loc[:, ["Date"] + self._model.VARIABLES]
 
     def parse_range(self, dates=None, past_days=None, phases=None):
         """

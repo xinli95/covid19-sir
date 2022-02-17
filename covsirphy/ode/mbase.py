@@ -383,4 +383,4 @@ class ModelBase(Term):
         if isinstance(values, float):
             return min(max(values, lower), upper)
         cls._ensure_instance(values, pd.Series, name="values")
-        return values.clip()
+        return values.clip(lower, upper)

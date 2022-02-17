@@ -50,8 +50,11 @@ class _ODESolver(Term):
         step_n = self._ensure_natural_int(step_n, name="number")
         kwargs = {param: int(value) for (param, value) in kwargs.items()}
         y0_dict = self._ensure_kwargs(self._model.VARIABLES, int, **kwargs)
-        # Calculate population
-        population = sum(y0_dict.values())
+        try:
+            population = self._model.population
+        except AttributeError:
+            # Calculate population
+            population = sum(y0_dict.values())
         # Solve problem
         return self._run(step_n=step_n, y0_dict=y0_dict, population=population)
 

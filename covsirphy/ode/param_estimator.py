@@ -38,9 +38,9 @@ class _ParamEstimator(Term):
         "percentile": optuna.pruners.PercentilePruner,
     }
 
-    def __init__(self, model, data, tau, metric, quantiles):
+    def __init__(self, model, data, tau, metric, quantiles, metric_cols=[], metric_cols_weights=[]):
         self._model = self._ensure_subclass(model, ModelBase, name="model")
-        self._ensure_dataframe(data, name="data", columns=self.DSIFR_COLUMNS)
+        self._ensure_dataframe(data, name="data", columns=model.DSIFR_COLUMNS)
         self._tau = self._ensure_tau(tau, accept_none=False)
         self._metric = self._ensure_selectable(metric, Evaluator.metrics(), name="metric")
         # time steps (index), variables of the model
@@ -49,13 +49,20 @@ class _ParamEstimator(Term):
         # Initial values
         self._y0_dict = df.iloc[0].to_dict()
         # Total population
-        self._population = df.iloc[0].sum()
+        # self._population = df.iloc[0].sum()
+        try:
+            self._population = model.population
+        except AttributeError:
+            # Calculate population
+            self._population = df.iloc[0].sum()
         # Step numbers
         self._step_n = df.index.max()
         # Parameter range
         self._range_dict = model.guess(data, tau, q=quantiles)
         # Max values of the variables
         self._max_dict = {v: df[v].max() for v in model.VARIABLES}
+        self.metric_cols = metric_cols
+        self.metric_cols_weights = metric_cols_weights
 
     def run(self, check_dict, study_dict):
         """
@@ -110,7 +117,7 @@ class _ParamEstimator(Term):
                 break
         model_instance = self._model(self._population, **param_dict)
         return {
-            self.RT: model_instance.calc_r0(),
+            # self.RT: model_instance.calc_r0(),
             **param_dict.copy(),
             **model_instance.calc_days_dict(self._tau),
             self._metric: self._score(**param_dict),
@@ -168,11 +175,11 @@ class _ParamEstimator(Term):
         solver = _ODESolver(model=self._model, **kwargs)
         sim_df = solver.run(step_n=self._step_n, **self._y0_dict)
         # The first variable (Susceptible) will be ignored in score calculation
-        taufree_df = self._taufree_df.loc[:, self._taufree_df.columns[1:]]
-        sim_df = sim_df.loc[:, sim_df.columns[1:]]
+        taufree_df = self._taufree_df.loc[:, self.metric_cols] # self._taufree_df.columns[2:3]
+        sim_df = sim_df.loc[:, self.metric_cols] # sim_df.columns[2:3]
         # Calculate score
         evaluator = Evaluator(taufree_df, sim_df, how="inner", on=None)
-        return evaluator.score(metric=self._metric)
+        return evaluator.score(metric=self._metric, multioutput = self.metric_cols_weights)
 
     def is_in_allowance(self, allowance, **kwargs):
         """
