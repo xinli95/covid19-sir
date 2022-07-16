@@ -710,8 +710,10 @@ class Scenario(Term):
         df = self._summary(name=name).dropna(how="all", axis=1).fillna(self.UNKNOWN)
         if df.empty:
             return pd.DataFrame(index=[self.TENSE, self.START, self.END, self.N])
+        df["Duration"] = (df[self.END] - df[self.START]).dt.days + 1
         df[self.START] = df[self.START].dt.strftime(self.DATE_FORMAT)
         df[self.END] = df[self.END].dt.strftime(self.DATE_FORMAT)
+        
         if columns is None:
             return df
         self._ensure_list(columns, df.columns.tolist(), name="columns")
@@ -902,14 +904,14 @@ class Scenario(Term):
         """
         tracker = self._tracker(name=name)
         # Variables to show
-        variables = self._convert_variables(variables, candidates=self.VALUE_COLUMNS)
+        # variables = self._convert_variables(variables, candidates=self.VALUE_COLUMNS)
         # Specify range of dates
         start, end = tracker.parse_range(**find_args(PhaseTracker.parse_range, **kwargs))
         sim_df = tracker.simulate().set_index(self.DATE).loc[start:end, variables]
         # Show figure
         start_dates = tracker.summary()[self.START].tolist()
         title = f"{self._area}: Simulated number of cases ({name} scenario)"
-        self.line_plot(df=sim_df, title=title, y_integer=True, v=start_dates[1:], **kwargs)
+        # self.line_plot(df=sim_df, title=title, y_integer=True, v=start_dates[1:], **kwargs)
         return sim_df.reset_index()
 
     def get(self, param, phase="last", name="Main"):

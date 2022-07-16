@@ -25,7 +25,7 @@ from covsirphy.util.evaluator import Evaluator
 from covsirphy.util.term import Term, Word
 # visualization
 from covsirphy.visualization.vbase import VisualizeBase
-from covsirphy.visualization.colored_map import ColoredMap
+# from covsirphy.visualization.colored_map import ColoredMap
 from covsirphy.visualization.japan_map import jpn_map
 from covsirphy.visualization.line_plot import LinePlot, line_plot
 from covsirphy.visualization.bar_plot import BarPlot, bar_plot
@@ -58,6 +58,7 @@ from covsirphy.ode.sirf import SIRF
 from covsirphy.ode.sirfv import SIRFV
 from covsirphy.ode.sewirf import SEWIRF
 from covsirphy.ode.seiird import SEIIRD
+from covsirphy.ode.seiird_Q import SEIIRD_Q
 from covsirphy.ode.ode_handler import ODEHandler
 # simulation
 from covsirphy.simulation.estimator import Estimator, Optimizer

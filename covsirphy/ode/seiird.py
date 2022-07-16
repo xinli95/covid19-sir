@@ -113,7 +113,7 @@ class SEIIRD(ModelBase):
                 "1/beta_2 [day]": int(tau / 24 / 60 / self.beta_2),
                 "1/alpha [day]": int(tau / 24 / 60 / self.alpha),
                 "1/gamma [day]": int(tau / 24 / 60 / self.gamma),
-                "1/lamba [day]": int(tau / 24 / 60 / self.lamda)
+                "1/lamda [day]": int(tau / 24 / 60 / self.lamda)
             }
         except ZeroDivisionError:
             return {p: None for p in self.DAY_PARAMETERS}

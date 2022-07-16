@@ -249,7 +249,7 @@ class DataHandler(Term):
         """
         if not whether:
             df = self._main_raw.copy()
-            self._main_df = df.loc[df[self.R] > 0].reset_index(drop=True)
+            self._main_df = df.loc[df[self.R] >= 0].reset_index(drop=True)
             self._complemented = False
             return
         self._comp_dict.update(kwargs)

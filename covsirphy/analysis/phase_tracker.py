@@ -340,8 +340,8 @@ class PhaseTracker(Term):
         new_df.insert(0, self.ODE, model.NAME)
         # Calculate reproduction number
         new_df.insert(1, self.RT, None)
-        new_df[self.RT] = new_df[model.PARAMETERS].apply(
-            lambda x: model(1, **x.to_dict()).calc_r0(), axis=1)
+        # new_df[self.RT] = new_df[model.PARAMETERS].apply(
+        #     lambda x: model(1, **x.to_dict()).calc_r0(), axis=1)
         # Add tau
         new_df[self.TAU] = self._tau
         # Calculate days parameters
@@ -397,7 +397,7 @@ class PhaseTracker(Term):
         handler = ODEHandler(self._model, record_df.index.min(), tau=self._tau)
         parameters = self._model.PARAMETERS[:]
         for (start, end) in zip(start_dates, end_dates):
-            param_dict = record_df.loc[start, parameters].to_dict() # should be start!!
+            param_dict = record_df.loc[start, parameters].to_dict() # doesnt matter start or end, parameters are constant for each phase
             if end <= self._today:
                 ph_df = record_df.loc[start:, self._model.VARIABLES].reset_index() #self.SUB_COLUMNS[1:-1], [self.S, self.CI, self.F, self.R]
                 y0_dict = self._model.convert(ph_df, self._tau).iloc[0].to_dict()

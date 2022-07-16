@@ -4,13 +4,13 @@
 from pathlib import Path
 import warnings
 import country_converter as coco
-import geopandas as gpd
+# import geopandas as gpd
 from matplotlib import pyplot as plt
 import pandas as pd
 from covsirphy.util.argument import find_args
 from covsirphy.util.error import deprecate, SubsetNotFoundError, UnExpectedValueError
 from covsirphy.util.term import Term
-from covsirphy.visualization.colored_map import ColoredMap
+# from covsirphy.visualization.colored_map import ColoredMap
 
 
 class CleaningBase(Term):
